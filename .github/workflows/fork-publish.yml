@@ -16,6 +16,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: arduino/setup-protoc@v3
@@ -31,5 +33,3 @@ jobs:
           echo "uploaded $ASSET"
       - name: Report head
         run: echo "published $(git rev-parse --short HEAD) -> v0.1.0-herdr"
-        env:
-          GH_TOKEN: ${{ github.token }}
