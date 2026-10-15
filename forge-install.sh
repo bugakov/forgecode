@@ -15,6 +15,9 @@
 #   --dry-run       resolve target + URL, do not install
 #
 # POSIX sh. No external deps beyond curl/wget.
+#
+# v1.1.0: added connect/max timeouts, download retries and progress output so
+# a flaky or slow link cannot hang the installer silently.
 
 set -u
 
@@ -22,7 +25,8 @@ REPO="bugakov/forgecode"
 BASE_URL="https://github.com/${REPO}/releases/latest/download"
 
 INSTALL_DIR="${FORGE_INSTALL_DIR:-}"
-VERSION="1.0.0"
+VERSION="1.1.0"
+TRIES=3
 
 log() { printf '%s\n' "[forge-install] $*"; }
 die() { printf '%s\n' "[forge-install] ERROR: $*" >&2; exit 1; }
@@ -38,12 +42,29 @@ while [ "$#" -gt 0 ]; do
 done
 
 # ---- download helper ----
+# fetch $1 -> stdout. Bounded by timeouts; diagnostics + progress go to
+# stderr so stdout stays a clean binary stream.
 fetch() {
-    # fetch $1 -> stdout
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --max-time 120 "$1"
+        # -f fail on HTTP errors, -L follow redirects, -S show errors;
+        # --connect-timeout bounds the TCP handshake (the part that used to
+        # hang for minutes), --max-time bounds the whole transfer,
+        # --retry/--retry-delay re-attempt transient network failures,
+        # --progress-bar shows a live meter so the run never looks dead.
+        curl -fL -S \
+            --connect-timeout 10 \
+            --max-time 120 \
+            --retry 1 \
+            --retry-delay 2 \
+            --progress-bar \
+            "$1"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "$1"
+        wget -O- \
+            --tries="$TRIES" \
+            --timeout=30 \
+            --waitretry=3 \
+            --progress=dot:meter \
+            "$1"
     else
         die "need curl or wget"
     fi
@@ -76,12 +97,8 @@ case "$os" in
         ASSET="forge-${arch}-pc-windows-msvc.exe"
         ;;
     linux)
-        # prefer gnu; musl as fallback if the arch isn't published
+        # prefer gnu; fork publishes x86_64/aarch64 gnu binaries
         ASSET="forge-${arch}-unknown-linux-gnu"
-        if [ "$arch" = "armv7l" ]; then
-            # fork has no armv7 linux asset; try musl then bail with message
-            ASSET="forge-${arch}-unknown-linux-gnu"
-        fi
         ;;
     *) die "internal error" ;;
 esac
@@ -108,13 +125,28 @@ if [ ! -w "$INSTALL_DIR" ]; then
     die "$INSTALL_DIR is not writable (use --dir or run as user with write access)"
 fi
 
-log "Downloading $ASSET"
+log "Downloading $ASSET (about 43 MB)"
 log "  from $URL"
+log "  each attempt is bounded; progress is shown below"
 
 TMP="$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/forge-install.$$")"
-if ! fetch "$URL" > "$TMP"; then
+
+n=0
+ok=0
+while [ "$n" -lt "$TRIES" ]; do
+    n=$((n + 1))
     rm -f "$TMP"
-    die "download failed (asset '$ASSET' may not exist for ${arch}-${os}; see --dry-run)"
+    if fetch "$URL" > "$TMP"; then
+        ok=1
+        break
+    fi
+    log "download attempt $n/$TRIES failed; retrying..."
+    [ "$n" -lt "$TRIES" ] && sleep 3
+done
+
+if [ "$ok" != "1" ]; then
+    rm -f "$TMP"
+    die "download failed after $TRIES attempts (asset '$ASSET' may not exist for ${arch}-${os}; see --dry-run)"
 fi
 
 # sanity: reject tiny/HTML responses (404 pages, redirect stubs)
