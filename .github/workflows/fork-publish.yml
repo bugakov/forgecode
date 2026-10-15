@@ -26,18 +26,8 @@ jobs:
         run: |
           set -euo pipefail
           ASSET=forge-x86_64-unknown-linux-gnu
-          RELEASE_ID=408940423
           cp target/release/forge "$ASSET"
-          # overwrite the existing asset if present, else upload a new one
-          if gh release view v0.1.0-herdr --repo bugakov/forgecode >/dev/null 2>&1 \
-             && gh release delete-asset v0.1.0-herdr "$ASSET" --repo bugakov/forgecode \
-                --yes >/dev/null 2>&1; then
-            echo "replaced existing asset $ASSET"
-          else
-            echo "no existing $ASSET to replace; uploading new"
-          fi
-          gh release upload v0.1.0-herdr "$ASSET" --repo bugakov/forgecode \
-            --clobber --target release
+          gh release upload v0.1.0-herdr "$ASSET" --repo bugakov/forgecode --clobber
           echo "uploaded $ASSET"
       - name: Report head
         run: echo "published $(git rev-parse --short HEAD) -> v0.1.0-herdr"
