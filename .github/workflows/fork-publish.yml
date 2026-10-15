@@ -1,0 +1,45 @@
+# Publish a fresh `forge` build from the `release` branch into the fork's
+# public release `v0.1.0-herdr`, so `releases/latest` always serves a binary
+# with all our patches (herdr, non-multimodal crash fix, rename prefill).
+#
+# Triggered only by pushes to the `release` branch. The stock upstream
+# `release.yml` reacts to `release: published` only, so it will not run here.
+name: fork-publish
+
+on:
+  push:
+    branches: [release]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-protoc@v3
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Build forge (release)
+        run: cargo build --release -p forge_main
+      - name: Update release asset
+        run: |
+          set -euo pipefail
+          ASSET=forge-x86_64-unknown-linux-gnu
+          RELEASE_ID=408940423
+          cp target/release/forge "$ASSET"
+          # overwrite the existing asset if present, else upload a new one
+          if gh release view v0.1.0-herdr --repo bugakov/forgecode >/dev/null 2>&1 \
+             && gh release delete-asset v0.1.0-herdr "$ASSET" --repo bugakov/forgecode \
+                --yes >/dev/null 2>&1; then
+            echo "replaced existing asset $ASSET"
+          else
+            echo "no existing $ASSET to replace; uploading new"
+          fi
+          gh release upload v0.1.0-herdr "$ASSET" --repo bugakov/forgecode \
+            --clobber --target release
+          echo "uploaded $ASSET"
+      - name: Report head
+        run: echo "published $(git rev-parse --short HEAD) -> v0.1.0-herdr"
+        env:
+          GH_TOKEN: ${{ github.token }}
