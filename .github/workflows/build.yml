@@ -1,0 +1,48 @@
+# Build the forge binary (with herdr-agent integration) as a CI artifact.
+#
+# This is a minimal per-branch build used by the bugakov/forgecode fork so
+# contributors get a ready `forge` binary without building the full Rust
+# workspace locally. It follows the upstream release recipe
+# (arduino/setup-protoc + actions-rust-lang/setup-rust-toolchain +
+# cargo build --release) but produces an artifact instead of a GitHub release.
+
+name: build
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+env:
+  RUSTFLAGS: '-Dwarnings'
+
+jobs:
+  build:
+    name: Build forge (x86_64-unknown-linux-gnu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Protobuf Compiler
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build Binary
+        run: cargo build --release -p forge_main
+
+      - name: Show built binary
+        run: ls -lh target/release/forge && file target/release/forge
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-x86_64-unknown-linux-gnu-${{ github.sha }}
+          path: target/release/forge
